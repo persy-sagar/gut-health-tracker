@@ -1,0 +1,20 @@
+{
+  "Anusha": {
+    "user_id": "Anusha",
+    "date": "2026-08-09 17:14",
+    "age": 35,
+    "gender": "Female",
+    "bmi": 29.3,
+    "bloating": "Rarely",
+    "bowel_regularity": "Regular",
+    "abdominal_pain": "Sometimes",
+    "stool_consistency": "Normal",
+    "pss10_score": 17,
+    "pss10_result": "Moderate Stress",
+    "stroop_avg_reaction_time": 22.32,
+    "stroop_accuracy_pct": 100.0,
+    "stroop_result": "High Cognitive Stress",
+    "gut_health_score": 53,
+    "gut_health_category": "Moderate Gut Health \u2014 room for improvement"
+  }
+}
