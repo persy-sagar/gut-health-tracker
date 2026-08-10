@@ -84,9 +84,9 @@ def get_users():
 
 def create_user(phone, name, pin):
     users = get_users()
-    users[phone] = {
-        "name": name,
-        "pin": pin,
+    users[phone.strip()] = {
+        "name": name.strip(),
+        "pin": pin.strip(),
         "created_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
     save_json(USERS_FILE, users)
@@ -94,7 +94,9 @@ def create_user(phone, name, pin):
 
 def verify_user(phone, pin):
     users = get_users()
-    if phone in users and users[phone]["pin"] == pin:
+    phone = phone.strip()
+    pin = pin.strip()
+    if phone in users and str(users[phone]["pin"]).strip() == pin:
         return users[phone]
     return None
 
@@ -263,7 +265,7 @@ if not st.session_state.logged_in:
     st.title("🩺 Gut & Health Tracker")
     st.write("Log in with your phone number to access your personal health profile.")
 
-    phone_input = st.text_input("Phone Number (10 digits, no country code)", max_chars=10)
+    phone_input = st.text_input("Phone Number (10 digits, no country code)", max_chars=10, key="login_phone")
 
     if phone_input and not is_valid_phone(phone_input):
         st.warning("Please enter a valid 10-digit phone number.")
@@ -271,8 +273,11 @@ if not st.session_state.logged_in:
     elif phone_input and is_valid_phone(phone_input):
         if user_exists(phone_input):
             st.success("Welcome back! Please enter your PIN to continue.")
-            pin_input = st.text_input("4-digit PIN", type="password", max_chars=4)
-            if st.button("Log In"):
+            with st.form("login_form"):
+                pin_input = st.text_input("4-digit PIN", type="password", max_chars=4, key="login_pin")
+                login_submitted = st.form_submit_button("Log In")
+
+            if login_submitted:
                 user = verify_user(phone_input, pin_input)
                 if user:
                     st.session_state.logged_in = True
@@ -283,12 +288,14 @@ if not st.session_state.logged_in:
                     st.error("Incorrect PIN. Please try again.")
         else:
             st.info("New here? Let's set up your profile.")
-            new_name = st.text_input("Your Name")
-            new_pin = st.text_input("Create a 4-digit PIN", type="password", max_chars=4)
-            confirm_pin = st.text_input("Confirm PIN", type="password", max_chars=4)
+            with st.form("signup_form"):
+                new_name = st.text_input("Your Name", key="signup_name")
+                new_pin = st.text_input("Create a 4-digit PIN", type="password", max_chars=4, key="signup_pin")
+                confirm_pin = st.text_input("Confirm PIN", type="password", max_chars=4, key="signup_confirm_pin")
+                signup_submitted = st.form_submit_button("Create Profile")
 
-            if st.button("Create Profile"):
-                if not new_name:
+            if signup_submitted:
+                if not new_name.strip():
                     st.error("Please enter your name.")
                 elif not (new_pin.isdigit() and len(new_pin) == 4):
                     st.error("PIN must be exactly 4 digits.")
@@ -298,7 +305,7 @@ if not st.session_state.logged_in:
                     create_user(phone_input, new_name, new_pin)
                     st.session_state.logged_in = True
                     st.session_state.phone = phone_input
-                    st.session_state.display_name = new_name
+                    st.session_state.display_name = new_name.strip()
                     st.success("Profile created!")
                     st.rerun()
 

@@ -34,5 +34,23 @@
     "stroop_result": "High Cognitive Stress",
     "gut_health_score": 57,
     "gut_health_category": "Moderate Gut Health \u2014 room for improvement"
+  },
+  "1234567890": {
+    "user_id": "1234567890",
+    "date": "2026-08-10 10:06",
+    "age": 25,
+    "gender": "Male",
+    "bmi": 23.9,
+    "bloating": "Never",
+    "abdominal_pain": "Never",
+    "bowel_regularity": "Very Irregular",
+    "stool_consistency": "Normal",
+    "pss10_score": 16,
+    "pss10_result": "Moderate Stress",
+    "stroop_avg_reaction_time": 3.4,
+    "stroop_accuracy_pct": 100.0,
+    "stroop_result": "High Cognitive Stress",
+    "gut_health_score": 61,
+    "gut_health_category": "Moderate Gut Health \u2014 room for improvement"
   }
 }
