@@ -1,18 +1,49 @@
 {
-  "9014118216": [
+  "1234567890": [
     {
-      "date": "2026-08-10",
-      "sleep_hours": 6.0,
-      "sleep_quality": "Excellent",
-      "water_glasses": 2,
-      "fiber_servings": 1,
+      "date": "2026-08-09",
+      "sleep_hours": 7.0,
+      "sleep_quality": "Good",
+      "sleep_schedule": "Regular Night Sleep",
+      "water_glasses": 6,
+      "fiber_servings": 2,
       "fried_spicy": "Light",
       "alcohol": "No",
       "exercise_minutes": 0,
       "stress_today": 2,
       "bloating_today": "None",
       "bowel_movement": "Yes",
-      "daily_score": 64
+      "daily_score": 80
+    },
+    {
+      "date": "2026-08-10",
+      "sleep_hours": 5.5,
+      "sleep_quality": "Good",
+      "sleep_schedule": "Regular Night Sleep",
+      "water_glasses": 4,
+      "fiber_servings": 3,
+      "fried_spicy": "Light",
+      "alcohol": "No",
+      "exercise_minutes": 0,
+      "stress_today": 3,
+      "bloating_today": "Mild",
+      "bowel_movement": "Yes",
+      "daily_score": 65
+    },
+    {
+      "date": "2026-08-11",
+      "sleep_hours": 5.5,
+      "sleep_quality": "Fair",
+      "sleep_schedule": "Regular Night Sleep",
+      "water_glasses": 4,
+      "fiber_servings": 2,
+      "fried_spicy": "Light",
+      "alcohol": "No",
+      "exercise_minutes": 0,
+      "stress_today": 3,
+      "bloating_today": "Mild",
+      "bowel_movement": "Yes",
+      "daily_score": 58
     }
   ]
 }

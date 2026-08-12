@@ -17,12 +17,18 @@ import os
 import re
 import time
 import random
+import joblib
+import numpy as np
 import pandas as pd
 from datetime import datetime, date
 
 BASELINE_FILE = "data/baseline_records.json"
 DAILY_LOG_FILE = "data/daily_logs.json"
 USERS_FILE = "data/users.json"
+
+PHASE3_MODEL_PATH = "models/phase3_model.pkl"
+PHASE3_ENCODER_PATH = "models/phase3_encoder.pkl"
+PHASE3_FEATURES_PATH = "models/phase3_features.pkl"
 
 
 # ---------------- STORAGE HELPERS ----------------
@@ -205,13 +211,15 @@ DAILY_POINTS = {
     "fried_spicy": {"None": 0, "Light": 3, "Moderate": 7, "Heavy": 12},
     "bloating_today": {"None": 0, "Mild": 4, "Moderate": 8, "Severe": 12},
     "sleep_quality": {"Poor": 10, "Fair": 6, "Good": 2, "Excellent": 0},
+    "sleep_schedule": {"Regular Night Sleep": 0, "Day Sleep (Night Shift)": 6, "Irregular/Rotating Schedule": 10},
 }
 
 
-def calculate_daily_score(sleep_hours, sleep_quality, water_glasses, fiber_servings,
+def calculate_daily_score(sleep_hours, sleep_quality, sleep_schedule, water_glasses, fiber_servings,
                             fried_spicy, alcohol, exercise_minutes, stress_today, bloating_today):
     points = 0
     points += DAILY_POINTS["sleep_quality"][sleep_quality]
+    points += DAILY_POINTS["sleep_schedule"][sleep_schedule]
     points += DAILY_POINTS["fried_spicy"][fried_spicy]
     points += DAILY_POINTS["bloating_today"][bloating_today]
 
@@ -236,11 +244,115 @@ def calculate_daily_score(sleep_hours, sleep_quality, water_glasses, fiber_servi
 
     points += (stress_today / 5) * 15
 
-    max_possible = 15 + 12 + 12 + 15 + 8 + 8 + 6 + 5 + 15
+    max_possible = 15 + 12 + 12 + 15 + 8 + 8 + 6 + 5 + 15 + 10  # includes sleep_schedule max
     risk_score = round((points / max_possible) * 100)
     daily_score = max(0, 100 - risk_score)
 
     return daily_score
+
+
+# ---------------- PHASE 3: ML PREDICTION ----------------
+
+# Maps the raw daily log fields to the encoded numeric values the model expects
+FRIED_SPICY_SCORE_MAP = {"None": 0, "Light": 3, "Moderate": 7, "Heavy": 12}
+BLOATING_SCORE_MAP = {"None": 0, "Mild": 4, "Moderate": 8, "Severe": 12}
+SLEEP_SCHEDULE_SCORE_MAP = {"Regular Night Sleep": 0, "Day Sleep (Night Shift)": 6, "Irregular/Rotating Schedule": 10}
+ALCOHOL_SCORE_MAP = {"No": 0, "Yes": 1}
+
+
+@st.cache_resource
+def load_phase3_model():
+    """Loads the trained model, label encoder, and feature list. Cached so it only loads once."""
+    if not (os.path.exists(PHASE3_MODEL_PATH) and os.path.exists(PHASE3_ENCODER_PATH)
+            and os.path.exists(PHASE3_FEATURES_PATH)):
+        return None, None, None
+    model = joblib.load(PHASE3_MODEL_PATH)
+    encoder = joblib.load(PHASE3_ENCODER_PATH)
+    feature_cols = joblib.load(PHASE3_FEATURES_PATH)
+    return model, encoder, feature_cols
+
+
+def build_rolling_features(logs, feature_cols):
+    """
+    Takes a user's raw daily logs (list of dicts) and computes the same
+    3-day rolling average features the model was trained on.
+    Returns a single-row DataFrame ready for prediction, using the MOST RECENT
+    3 days of data.
+    """
+    df = pd.DataFrame(logs)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date")
+
+    # Convert raw log fields into the same numeric scores used in training
+    df["fried_spicy_score"] = df["fried_spicy"].map(FRIED_SPICY_SCORE_MAP)
+    df["bloating_score"] = df["bloating_today"].map(BLOATING_SCORE_MAP)
+    df["sleep_schedule_score"] = df["sleep_schedule"].map(SLEEP_SCHEDULE_SCORE_MAP)
+    df["alcohol"] = df["alcohol"].map(ALCOHOL_SCORE_MAP)
+    df["water_glasses"] = df["water_glasses"]
+    df["fiber_servings"] = df["fiber_servings"]
+    df["exercise_minutes"] = df["exercise_minutes"]
+    df["stress_today"] = df["stress_today"]
+    df["sleep_hours"] = df["sleep_hours"]
+
+    raw_cols = ["sleep_hours", "water_glasses", "fiber_servings", "fried_spicy_score",
+                "alcohol", "exercise_minutes", "stress_today", "bloating_score", "sleep_schedule_score"]
+
+    for col in raw_cols:
+        df[f"{col}_roll3"] = df[col].rolling(window=3, min_periods=1).mean()
+
+    latest_row = df.iloc[[-1]]  # most recent day's rolling averages = our prediction input
+
+    # Ensure columns are in the exact order the model expects
+    X_pred = latest_row[feature_cols]
+    return X_pred
+
+
+def generate_recommendations(logs, feature_importance_map):
+    """
+    Rule-based recommendations: looks at the user's last 3 days average for each
+    factor, compares to an ideal target, and ranks suggestions by model feature importance.
+    """
+    df = pd.DataFrame(logs)
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").tail(3)
+
+    recommendations = []
+
+    avg_sleep = df["sleep_hours"].mean()
+    if avg_sleep < 7:
+        recommendations.append(("sleep_hours_roll3", f"Your average sleep is {avg_sleep:.1f} hrs — aim for 7-8 hours."))
+
+    avg_water = df["water_glasses"].mean()
+    if avg_water < 6:
+        recommendations.append(("water_glasses_roll3", f"You're averaging {avg_water:.1f} glasses of water — try to reach 6-8 daily."))
+
+    avg_fiber = df["fiber_servings"].mean()
+    if avg_fiber < 3:
+        recommendations.append(("fiber_servings_roll3", f"Your fiber intake is low ({avg_fiber:.1f} servings/day) — add more fruits, vegetables, and whole grains."))
+
+    fried_counts = df["fried_spicy"].map(FRIED_SPICY_SCORE_MAP).mean()
+    if fried_counts > 5:
+        recommendations.append(("fried_spicy_score_roll3", "You've had frequent fried/spicy food recently — try reducing this for a few days."))
+
+    avg_stress = df["stress_today"].mean()
+    if avg_stress > 3:
+        recommendations.append(("stress_today_roll3", f"Your stress levels have been elevated (avg {avg_stress:.1f}/5) — consider stress management techniques."))
+
+    avg_exercise = df["exercise_minutes"].mean()
+    if avg_exercise < 20:
+        recommendations.append(("exercise_minutes_roll3", f"You're averaging {avg_exercise:.0f} min of activity — aim for at least 20-30 min daily."))
+
+    schedule_scores = df["sleep_schedule"].map(SLEEP_SCHEDULE_SCORE_MAP).mean()
+    if schedule_scores > 0:
+        recommendations.append(("sleep_schedule_score_roll3", "Irregular/night-shift sleep patterns detected — try to keep sleep timing as consistent as possible, even if shifted."))
+
+    # Sort recommendations by how important that feature is to the model (highest impact first)
+    def importance_of(feat_name):
+        return feature_importance_map.get(feat_name, 0)
+
+    recommendations.sort(key=lambda x: importance_of(x[0]), reverse=True)
+
+    return [msg for _, msg in recommendations]
 
 
 # ============================================================
@@ -327,7 +439,8 @@ if st.sidebar.button("Log Out"):
 
 page = st.sidebar.radio(
     "Navigate",
-    ["🩺 Baseline Checkup (Phase 1)", "📝 Daily Log (Phase 2)", "📈 My Trends (Phase 2)"]
+    ["🩺 Baseline Checkup (Phase 1)", "📝 Daily Log (Phase 2)", "📈 My Trends (Phase 2)",
+     "🔮 Prediction & Recommendations (Phase 3)"]
 )
 
 st.sidebar.markdown("---")
@@ -464,7 +577,13 @@ elif page == "📝 Daily Log (Phase 2)":
     log_date = st.date_input("Date", value=date.today())
 
     st.subheader("Sleep")
-    sleep_hours = st.slider("Hours of sleep last night", 0.0, 12.0, 7.0, 0.5)
+    sleep_schedule = st.selectbox(
+        "Sleep schedule type today",
+        ["Regular Night Sleep", "Day Sleep (Night Shift)", "Irregular/Rotating Schedule"],
+        help="Night shift and irregular schedules disrupt your body's natural rhythm, "
+             "which research links to digestive issues independent of total sleep hours."
+    )
+    sleep_hours = st.slider("Hours of sleep (regardless of when)", 0.0, 12.0, 7.0, 0.5)
     sleep_quality = st.select_slider("Sleep quality", ["Poor", "Fair", "Good", "Excellent"])
 
     st.subheader("Hydration & Diet")
@@ -484,13 +603,14 @@ elif page == "📝 Daily Log (Phase 2)":
     if st.button("Save Today's Log"):
         if True:
             daily_score = calculate_daily_score(
-                sleep_hours, sleep_quality, water_glasses, fiber_servings,
+                sleep_hours, sleep_quality, sleep_schedule, water_glasses, fiber_servings,
                 fried_spicy, alcohol, exercise_minutes, stress_today, bloating_today
             )
 
             log_entry = {
                 "date": log_date.strftime("%Y-%m-%d"),
                 "sleep_hours": sleep_hours, "sleep_quality": sleep_quality,
+                "sleep_schedule": sleep_schedule,
                 "water_glasses": water_glasses, "fiber_servings": fiber_servings,
                 "fried_spicy": fried_spicy, "alcohol": alcohol,
                 "exercise_minutes": exercise_minutes, "stress_today": stress_today,
@@ -548,3 +668,91 @@ elif page == "📈 My Trends (Phase 2)":
 
             with st.expander("See full log history (table)"):
                 st.dataframe(df.drop(columns=["rolling_avg"], errors="ignore"))
+
+
+# ============================================================
+# PAGE 4: PREDICTION & RECOMMENDATIONS (Phase 3)
+# ============================================================
+elif page == "🔮 Prediction & Recommendations (Phase 3)":
+    st.title("🔮 Prediction & Recommendations")
+    st.write("Using your last 3 days of logged habits, this predicts your likely gut health "
+             "trend tomorrow and gives personalized suggestions based on what matters most.")
+
+    pred_user_id = st.session_state.phone
+    logs = get_user_logs(pred_user_id)
+
+    model, encoder, feature_cols = load_phase3_model()
+
+    if model is None:
+        st.error("Prediction model not found. Make sure models/phase3_model.pkl exists "
+                  "(run src/train_phase3.py first).")
+    elif len(logs) < 3:
+        st.warning(f"You have {len(logs)} day(s) logged. You need at least **3 days** of "
+                   "Daily Log entries before a prediction can be made (the model uses your "
+                   "3-day rolling average). Go log a couple more days!")
+    else:
+        # Build the feature row from the user's real recent logs
+        X_pred = build_rolling_features(logs, feature_cols)
+
+        # Predict
+        pred_encoded = model.predict(X_pred)[0]
+        pred_label = encoder.inverse_transform([pred_encoded])[0]
+
+        # Get probability/confidence if available
+        if hasattr(model, "predict_proba"):
+            proba = model.predict_proba(X_pred)[0]
+            confidence = max(proba) * 100
+        else:
+            confidence = None
+
+        # ---- Styled Result Card ----
+        color_map = {"Good": "#2ECC71", "Moderate": "#F39C12", "Poor": "#E74C3C"}
+        bg_map = {"Good": "#EAFBF1", "Moderate": "#FEF6E7", "Poor": "#FDEDEC"}
+        emoji_map = {"Good": "🟢", "Moderate": "🟡", "Poor": "🔴"}
+
+        color = color_map[pred_label]
+        bg_color = bg_map[pred_label]
+        emoji = emoji_map[pred_label]
+
+        confidence_text = f"<p style='font-size:16px; color:#888;'>Model confidence: {confidence:.0f}%</p>" if confidence else ""
+
+        st.markdown(f"""
+            <div style="background-color: {bg_color}; border: 2px solid {color}; border-radius: 16px; padding: 30px; text-align: center; margin: 20px 0;">
+                <p style="font-size: 18px; color: #555;">{emoji} PREDICTED GUT HEALTH — TOMORROW</p>
+                <p style="font-size: 48px; font-weight: 800; color: {color}; margin: 10px 0;">{pred_label}</p>
+                {confidence_text}
+            </div>
+        """, unsafe_allow_html=True)
+
+        # ---- Load feature importance for ranking recommendations ----
+        feature_importance_map = {}
+        importance_path = "models/phase3_feature_importance.csv"
+        if os.path.exists(importance_path):
+            importance_df = pd.read_csv(importance_path)
+            feature_importance_map = dict(zip(importance_df["feature"], importance_df["importance"]))
+
+        # ---- Recommendations ----
+        st.markdown("### 💡 Personalized Recommendations")
+        st.caption("Based on your last 3 logged days, ranked by what matters most for your prediction")
+
+        recommendations = generate_recommendations(logs, feature_importance_map)
+
+        if not recommendations:
+            st.success("Your recent habits look solid across the board — keep it up!")
+        else:
+            for rec in recommendations:
+                st.markdown(
+                    f"""<div style="
+                        background-color: #F8F9FA;
+                        border-left: 4px solid {color};
+                        padding: 12px 18px;
+                        border-radius: 6px;
+                        margin-bottom: 8px;
+                        font-size: 16px;
+                    ">💡 {rec}</div>""",
+                    unsafe_allow_html=True
+                )
+
+        st.info("📌 Note: This model is trained on synthetic data grounded in gut-health research "
+                "(a common 'cold-start' approach when real user history is still small). "
+                "Predictions will become more personalized as you log more days.")
