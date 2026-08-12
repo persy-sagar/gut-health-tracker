@@ -44,6 +44,21 @@
       "bloating_today": "Mild",
       "bowel_movement": "Yes",
       "daily_score": 58
+    },
+    {
+      "date": "2026-08-12",
+      "sleep_hours": 7.0,
+      "sleep_quality": "Poor",
+      "sleep_schedule": "Regular Night Sleep",
+      "water_glasses": 6,
+      "fiber_servings": 2,
+      "fried_spicy": "None",
+      "alcohol": "No",
+      "exercise_minutes": 20,
+      "stress_today": 3,
+      "bloating_today": "None",
+      "bowel_movement": "Yes",
+      "daily_score": 77
     }
   ]
 }
